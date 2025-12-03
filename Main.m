@@ -13,25 +13,12 @@ addpath("Signals\");
         File.DataType = 'int16';
         File.dF = 0;
         % Запись: 'Rus1_small' | 'Rus2_small' | 'Fin_small'
-            File.Name = 'Rus2_small';
+            File.Name = 'Fin_small';
         % Частота дискретизации
             File.Fs0 = 64/7*10^6;
         % Коэффициенты передискретизации
             File.FsDown = 1;
             File.FsUp = 1;
-
-    % Длительность OFDM символа в отсчётах
-        SamplesPerSymbol = 8192;
-
-% Вычисляемые параметры
-    % Длина циклического префикса
-        if strcmp(File.Name, 'Rus1_small') || ...
-                strcmp(File.Name, 'Rus2_small')
-            CPLen = 256;
-
-        elseif strcmp(File.Name, 'Fin_small')
-            CPLen = 1024;
-        end
 
 % Загрузка сигнала из файла
     NumOfShiftedSamples = 0;
@@ -39,37 +26,112 @@ addpath("Signals\");
     [Signal, ~] = ReadSignalFromFile( ...
         File, NumOfShiftedSamples, NumOfNeededSamples);
 
-
 % Цифровая фильтрация сигнала
     load("LPF_Rus1.mat", "LPF_Rus1");
     FSignal = conv(Signal, LPF_Rus1);
 
-% Символьная синхронизация по циклическому префиксу
-    % Число используемых для синхронизации символов
-        NumReps = 10;
-    % Длина результата корреляции в отсчётах
-        CorrLen = NumReps*(8192+CPLen);
-    % Память под результат
-        CorrRes = zeros(1, CorrLen);
+%% Символьная синхронизация по циклическому префиксу
+% Параметры
+    SymLen = 8192;
+    NumCorPers = 8;
+    % Порог при определении длины ЦП
+        CPTreshold = 6;
 
-    for k = 1:CorrLen
-        CorrRes(k) = FSignal((1:CPLen) + (k-1)) * ...
-            conj(FSignal((1:CPLen) + SamplesPerSymbol + (k-1)).');
+% cell-массив для результатов корреляций для различных вариантов длин ЦП
+    NCorsCell = cell(1, 4);
+    NCorsAccumulate = cell(1, 4);
+
+% Массив различных длин ЦП
+    CPLenVals = SymLen * [1/4 1/8 1/16 1/32];
+
+for CPLenIdx = 1:length(CPLenVals) % Цикл по различным длинам ЦП
+
+    CPLen = CPLenVals(CPLenIdx);
+    CorPer = SymLen + CPLen;
+    CorLen = CorPer * NumCorPers;
+
+    ShortSig = FSignal( 1:(CorPer + CorLen - 1) );
+    Cors = conv( ...
+        ShortSig( 1:CPLen+CorLen-1 ) .* ...
+        conj( ShortSig( (1:CPLen+CorLen-1)+SymLen ) ), ...
+        ones( 1, CPLen ), "valid" ...
+    );
+
+    En  = conv( ShortSig .* conj(ShortSig), ones(1, CPLen), "valid" );
+    En1 = En(  1:CorLen ); 
+    En2 = En( (1:CorLen) + SymLen ); 
+    NCors = Cors ./ sqrt( En1 .* En2 );
+
+    NCorsCell{CPLenIdx} = NCors;
+
+    % Накопление 
+        Buf = reshape(NCors, [], NumCorPers);
+        NCorsAccumulate{CPLenIdx} = abs( sum(Buf, 2) );
+end
+
+% Определение длины ЦП
+    isTresholdExceeded = zeros(1, 4);
+
+    for CPLenIdx = 1:length(CPLenVals)
+        isTresholdExceeded(CPLenIdx) = ...
+            sum( NCorsAccumulate{CPLenIdx} >= CPTreshold);
     end
-    % Накопление результата
-        Buf = reshape(CorrRes, SamplesPerSymbol+CPLen, []);
-        NonKohAcc = sum(abs(Buf), 2);
-    % Сдвиг в FSignal до начала циклического префикса
-        [~, Ind] = max(NonKohAcc);
-    
-%% Рисунки
-    f1 = figure;
-    SPDEstPlotFun(Signal, File.Fs0, 5e3); hold on; grid on;
-    SPDEstPlotFun(FSignal, File.Fs0, 5e3); hold on;
-    legend('До фильтрации', 'После фильтрации');
+    CPLenIdx = find( isTresholdExceeded );
+    CPLen    = CPLenVals( CPLenIdx );
+    % Грубая оценка временной синхронизации
+        Buf = NCorsAccumulate{CPLenIdx};
+        [~, Symbol_Offset] = max(Buf);
 
-    f2 = figure;
-    plot(abs(CorrRes));  grid on;
+%% ДЗ от 03.12.2025:
+% - Задаёмся различными сдвигами относительно грубой оценки начала ОФДМ 
+%   символа (-40:1:40, 81 значение);
+% - Задаёмся возможными значениями кратного сдвига частоты 
+%   ( (-3:3)*1/(2T), 7 значений );
+% - Обрабатываем один ОФДМ-символ;
+% - Двумерная корреляционная функция:
+%   * По первому измерению кратный сдвиг частоты;
+%   * По второму измерению отсчёт, соответствующий предположительному
+%     началу сигнала;
+%   * По ординате значение корреляционной функции;
+%
+% - Последовательность действий для каждой точки корреляционной функции:
+%   1. Сдвигаемся по времени на определенный отчёт (смещение от -40 до 40
+%      относительно грубой оценки синхронизации);
+%   2. Определяем и компенсируем дробный сдвиг по частоте;
+%   3. Берём ДПФ и имплементируем кратный сдвиг по частоте;
+%   4. Извлекаем пилотные поднесущие;
+%   5. Коррелируем набор пилотов с эталонной последовательностью.
+%   * Результирующая картинка - картина многолучевости в канале, с пиками 
+%     в различных сдвигах по времени и частоте.
+%
+% - bar3 для рисования трёхмерной картинки столбцами.
 
-    f3 = figure;
-    plot(NonKohAcc);  grid on;
+%% Точная символьная и частотная синхронизация
+% Массив сдвигов относительно грубой временной синхронизации
+    ShiftSamps = ( -40:40 );
+% Массив кратных частотных сдвигов в единицах 1/T
+    ShiftFreqs = ( -3:3 );
+
+% Массив значений корреляционной функции
+    CorrVals = zeros(length(ShiftSamps), length(ShiftFreqs));
+
+% Цикл по сдвигам во времени
+for shIdx = 1:length(ShiftSamps)
+    % Текущий сдвиг до начала символа
+        TOffset = Symbol_Offset+ShiftSamps(shIdx);
+
+    % Цикл по кратным сдвигам частоты
+    for frIdx = 1:length(ShiftFreqs)
+        % Текущий кратный частотный сдвиг
+            FOffset = ShiftFreqs(frIdx);
+
+        % Сдвигаемся к началу ОФДМ-символа и выбираем его отсчёты 
+            CPSymbol = FSignal( ( 1:SymLen+CPLen )-1 + TOffset );
+
+        % Значения корреляции отсчётов ЦП и символа
+            % CorrCloud = 
+
+    end
+end
+
+% Обязательно доделать к следующей паре!
