@@ -13,7 +13,7 @@ addpath("Signals\");
         File.DataType = 'int16';
         File.dF = 0;
         % Запись: 'Rus1_small' | 'Rus2_small' | 'Fin_small'
-            File.Name = 'Fin_small';
+            File.Name = 'Rus2_small';
         % Частота дискретизации
             File.Fs0 = 64/7*10^6;
         % Коэффициенты передискретизации
@@ -32,55 +32,14 @@ addpath("Signals\");
 
 %% Символьная синхронизация по циклическому префиксу
 % Параметры
-    SymLen = 8192;
-    NumCorPers = 8;
-    % Порог при определении длины ЦП
-        CPTreshold = 6;
+    % Длина ОФДМ символа отсчётах
+        SymLen = 8192;
 
-% cell-массив для результатов корреляций для различных вариантов длин ЦП
-    NCorsCell = cell(1, 4);
-    NCorsAccumulate = cell(1, 4);
+% Определение длины ЦП и построение КФ
+    [CPLen, CorrFun] = Cycle_Prefix_Length_Determination(FSignal);
 
-% Массив различных длин ЦП
-    CPLenVals = SymLen * [1/4 1/8 1/16 1/32];
-
-for CPLenIdx = 1:length(CPLenVals) % Цикл по различным длинам ЦП
-
-    CPLen = CPLenVals(CPLenIdx);
-    CorPer = SymLen + CPLen;
-    CorLen = CorPer * NumCorPers;
-
-    ShortSig = FSignal( 1:(CorPer + CorLen - 1) );
-    Cors = conv( ...
-        ShortSig( 1:CPLen+CorLen-1 ) .* ...
-        conj( ShortSig( (1:CPLen+CorLen-1)+SymLen ) ), ...
-        ones( 1, CPLen ), "valid" ...
-    );
-
-    En  = conv( ShortSig .* conj(ShortSig), ones(1, CPLen), "valid" );
-    En1 = En(  1:CorLen ); 
-    En2 = En( (1:CorLen) + SymLen ); 
-    NCors = Cors ./ sqrt( En1 .* En2 );
-
-    NCorsCell{CPLenIdx} = NCors;
-
-    % Накопление 
-        Buf = reshape(NCors, [], NumCorPers);
-        NCorsAccumulate{CPLenIdx} = abs( sum(Buf, 2) );
-end
-
-% Определение длины ЦП
-    isTresholdExceeded = zeros(1, 4);
-
-    for CPLenIdx = 1:length(CPLenVals)
-        isTresholdExceeded(CPLenIdx) = ...
-            sum( NCorsAccumulate{CPLenIdx} >= CPTreshold);
-    end
-    CPLenIdx = find( isTresholdExceeded );
-    CPLen    = CPLenVals( CPLenIdx );
-    % Грубая оценка временной синхронизации
-        Buf = NCorsAccumulate{CPLenIdx};
-        [~, Symbol_Offset] = max(Buf);
+% Оценка сдвига до начала ЦП
+    [~, Symbol_Offset] = max(CorrFun);
 
 %% ДЗ от 03.12.2025:
 % - Задаёмся различными сдвигами относительно грубой оценки начала ОФДМ 
@@ -129,7 +88,9 @@ for shIdx = 1:length(ShiftSamps)
             CPSymbol = FSignal( ( 1:SymLen+CPLen )-1 + TOffset );
 
         % Значения корреляции отсчётов ЦП и символа
-            % CorrCloud = 
+            CorrCloud = CPSymbol( 1:CPLen ) .* ...
+                conj( (1:CPLen) + SymLen );
+
 
     end
 end
