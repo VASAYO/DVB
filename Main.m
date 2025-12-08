@@ -13,12 +13,14 @@ addpath("Signals\");
         File.DataType = 'int16';
         File.dF = 0;
         % Запись: 'Rus1_small' | 'Rus2_small' | 'Fin_small'
-            File.Name = 'Rus2_small';
+            File.Name = 'Rus1_small';
         % Частота дискретизации
             File.Fs0 = 64/7*10^6;
         % Коэффициенты передискретизации
             File.FsDown = 1;
             File.FsUp = 1;
+    % Длина ОФДМ символа в отсчётах
+        SymLen = 8192;
 
 % Загрузка сигнала из файла
     NumOfShiftedSamples = 0;
@@ -31,10 +33,6 @@ addpath("Signals\");
     FSignal = conv(Signal, LPF_Rus1);
 
 %% Символьная синхронизация по циклическому префиксу
-% Параметры
-    % Длина ОФДМ символа отсчётах
-        SymLen = 8192;
-
 % Определение длины ЦП и построение КФ
     [CPLen, CorrFun] = Cycle_Prefix_Length_Determination(FSignal);
 
@@ -43,15 +41,14 @@ addpath("Signals\");
 
 %% ДЗ от 03.12.2025:
 % - Задаёмся различными сдвигами относительно грубой оценки начала ОФДМ 
-%   символа (-40:1:40, 81 значение);
+%   символа ( -40:1:40, 81 значение );
 % - Задаёмся возможными значениями кратного сдвига частоты 
-%   ( (-3:3)*1/(2T), 7 значений );
+%   ( (-3:3)*1/T, 7 значений );
 % - Обрабатываем один ОФДМ-символ;
 % - Двумерная корреляционная функция:
 %   * По первому измерению кратный сдвиг частоты;
-%   * По второму измерению отсчёт, соответствующий предположительному
-%     началу сигнала;
-%   * По ординате значение корреляционной функции;
+%   * По второму измерению смещение до соответствующего луча;
+%   * По аппликате значение корреляционной функции;
 %
 % - Последовательность действий для каждой точки корреляционной функции:
 %   1. Сдвигаемся по времени на определенный отчёт (смещение от -40 до 40
@@ -66,32 +63,48 @@ addpath("Signals\");
 % - bar3 для рисования трёхмерной картинки столбцами.
 
 %% Точная символьная и частотная синхронизация
-% Массив сдвигов относительно грубой временной синхронизации
-    ShiftSamps = ( -40:40 );
-% Массив кратных частотных сдвигов в единицах 1/T
-    ShiftFreqs = ( -3:3 );
+% Номера поднесущих, на которых располагаются непрерывные пилоты
+    load("ContPilotsInds.mat", "ContPilotsInds");
 
-% Массив значений корреляционной функции
-    CorrVals = zeros(length(ShiftSamps), length(ShiftFreqs));
+% Сдвиги до моментов, определяющих начало ОФДМ символа
+    TOffsets = Symbol_Offset + 0;%( -40:40 );
+    TOffsets(TOffsets < 1) = [];
 
-% Цикл по сдвигам во времени
-for shIdx = 1:length(ShiftSamps)
-    % Текущий сдвиг до начала символа
-        TOffset = Symbol_Offset+ShiftSamps(shIdx);
+% Массив грубых частотных сдвигов в единицах 1/T
+    CoarseFreqShifts = 0;%( -3:3 );
+
+% Память под значения корреляционной функции
+    CorrVals = zeros(length(CoarseFreqShifts), length(TOffsets));
+
+% Цикл по сдвигам до лучей
+for tIdx = 1:length(TOffsets)
+    RayOffset = TOffsets(tIdx);
 
     % Цикл по кратным сдвигам частоты
-    for frIdx = 1:length(ShiftFreqs)
-        % Текущий кратный частотный сдвиг
-            FOffset = ShiftFreqs(frIdx);
+    for fIdx = 1:length(CoarseFreqShifts)
+        CoarseFreqShift = CoarseFreqShifts(fIdx);
 
-        % Сдвигаемся к началу ОФДМ-символа и выбираем его отсчёты 
-            CPSymbol = FSignal( ( 1:SymLen+CPLen )-1 + TOffset );
+        % Сдвигаемся до луча и выбирает отсчёты ЦП и символа
+            SymWithCP = FSignal( (1:CPLen+SymLen)-1 + RayOffset );
 
-        % Значения корреляции отсчётов ЦП и символа
-            CorrCloud = CPSymbol( 1:CPLen ) .* ...
-                conj( (1:CPLen) + SymLen );
+        % Определяем и компенсируем дробный частотный сдвиг
+            % Оценка набега фазы
+            Ksi = angle( ...
+                sum( SymWithCP( end-CPLen+1:end ) ) / ...
+                    sum( SymWithCP( 1:CPLen ) ) ...
+            );
 
+            % Дробный частотный сдвиг
+                FracFreqShift = Ksi / ( 2*pi * SymLen/File.Fs0 );
+            % Компенсация
+                NoFraqShift = SymWithCP .* ...
+                    exp( -1j*2*pi*FracFreqShift * ( 0:length(SymWithCP)-1 ) / File.Fs0 );
 
+        % Взятие ДПФ и имплементация кратного сдвига частоты
+            SCs = fftshift( fft( NoFraqShift( CPLen+1:end ) ) );
+            SCsShift = circshift(SCs, CoarseFreqShift);
+
+        figure; semilogy(abs(SCsShift))
     end
 end
 
