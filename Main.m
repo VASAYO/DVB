@@ -63,49 +63,82 @@ addpath("Signals\");
 % - bar3 для рисования трёхмерной картинки столбцами.
 
 %% Точная символьная и частотная синхронизация
-% Номера поднесущих, на которых располагаются непрерывные пилоты
-    load("ContPilotsInds.mat", "ContPilotsInds");
+% Массив сдвигов по времени
+    tOffsets = Symbol_Offset + ( -40:40 );
+% Массив кратных частотных отстроек
+% в единицах расстояния между поднесущими
+    fOffsets = ( -3:3 );
 
-% Сдвиги до моментов, определяющих начало ОФДМ символа
-    TOffsets = Symbol_Offset + 0;%( -40:40 );
-    TOffsets(TOffsets < 1) = [];
+% Инициализация матрицы со значениями двумерной КФ
+    CorrVals = zeros( length( fOffsets ), length( tOffsets ) );
 
-% Массив грубых частотных сдвигов в единицах 1/T
-    CoarseFreqShifts = 0;%( -3:3 );
+% Цикл по временным сдвигам
+for tIdx = 1:length( tOffsets )
+    % Выбор отсчётов ЦП и полезной части символа
+        Buf = FSignal( (1:CPLen+SymLen)-1 + tOffsets(tIdx) );
+        Prefix = Buf( 1:CPLen );
+        UsefulPart = Buf( CPLen+1:end );
 
-% Память под значения корреляционной функции
-    CorrVals = zeros(length(CoarseFreqShifts), length(TOffsets));
+    % Определение и компенсация дробной частотной отстройки
+        dphi = angle( sum( UsefulPart( end-CPLen+1:end ) ) / sum(Prefix) );
+        fFrac = dphi / ( 2*pi * SymLen/File.Fs0 );
+        UPFrecComp1 = UsefulPart .* ...
+            exp( -1j*2*pi*fFrac * ( 0:SymLen-1 )/File.Fs0 );
 
-% Цикл по сдвигам до лучей
-for tIdx = 1:length(TOffsets)
-    RayOffset = TOffsets(tIdx);
+    % Цикл по грубым частотным сдвигам
+    for fIdx = 1:length( tOffsets )
+        % Взятие БПФ и грубая частотная подстройка
+            FFTVals = fftshift(fft(UPFrecComp1));
+            FrecComp2 = circshift(FFTVals, fOffsets(fIdx));
 
-    % Цикл по кратным сдвигам частоты
-    for fIdx = 1:length(CoarseFreqShifts)
-        CoarseFreqShift = CoarseFreqShifts(fIdx);
-
-        % Сдвигаемся до луча и выбирает отсчёты ЦП и символа
-            SymWithCP = FSignal( (1:CPLen+SymLen)-1 + RayOffset );
-
-        % Определяем и компенсируем дробный частотный сдвиг
-            % Оценка набега фазы
-            Ksi = angle( ...
-                sum( SymWithCP( end-CPLen+1:end ) ) / ...
-                    sum( SymWithCP( 1:CPLen ) ) ...
-            );
-
-            % Дробный частотный сдвиг
-                FracFreqShift = Ksi / ( 2*pi * SymLen/File.Fs0 );
-            % Компенсация
-                NoFraqShift = SymWithCP .* ...
-                    exp( -1j*2*pi*FracFreqShift * ( 0:length(SymWithCP)-1 ) / File.Fs0 );
-
-        % Взятие ДПФ и имплементация кратного сдвига частоты
-            SCs = fftshift( fft( NoFraqShift( CPLen+1:end ) ) );
-            SCsShift = circshift(SCs, CoarseFreqShift);
-
-        figure; semilogy(abs(SCsShift))
+        % Выбор отсчётов, соответствующих поднесущим символа
+            
     end
 end
 
-% Обязательно доделать к следующей паре!
+% % Номера поднесущих, на которых располагаются непрерывные пилоты
+%     load("ContPilotsInds.mat", "ContPilotsInds");
+% 
+% % Сдвиги до моментов, определяющих начало ОФДМ символа
+%     TOffsets = Symbol_Offset + ( -40:40 );
+%     TOffsets(TOffsets < 1) = [];
+% 
+% % Массив грубых частотных сдвигов в единицах 1/T
+%     CoarseFreqShifts = ( -3:3 );
+% 
+% % Память под значения корреляционной функции
+%     CorrVals = zeros(length(CoarseFreqShifts), length(TOffsets));
+% 
+% % Цикл по сдвигам до лучей
+% for tIdx = 1:length(TOffsets)
+%     RayOffset = TOffsets(tIdx);
+% 
+%     % Цикл по кратным сдвигам частоты
+%     for fIdx = 1:length(CoarseFreqShifts)
+%         CoarseFreqShift = CoarseFreqShifts(fIdx);
+% 
+%         % Сдвигаемся до луча и выбирает отсчёты ЦП и символа
+%             SymWithCP = FSignal( (1:CPLen+SymLen)-1 + RayOffset );
+% 
+%         % Определяем и компенсируем дробный частотный сдвиг
+%             % Оценка набега фазы
+%             Ksi = angle( ...
+%                 sum( SymWithCP( end-CPLen+1:end ) ) / ...
+%                     sum( SymWithCP( 1:CPLen ) ) ...
+%             );
+% 
+%             % Дробный частотный сдвиг
+%                 FracFreqShift = Ksi / ( 2*pi * SymLen/File.Fs0 );
+%             % Компенсация
+%                 NoFraqShift = SymWithCP .* ...
+%                     exp( -1j*2*pi*FracFreqShift * ( 0:length(SymWithCP)-1 ) / File.Fs0 );
+% 
+%         % Взятие ДПФ и имплементация кратного сдвига частоты
+%             SCs = fftshift( fft( NoFraqShift( CPLen+1:end ) ) );
+%             SCsShift = circshift(SCs, CoarseFreqShift);
+% 
+%         figure; semilogy(abs(SCsShift))
+%     end
+% end
+% 
+% % Обязательно доделать к следующей паре!
