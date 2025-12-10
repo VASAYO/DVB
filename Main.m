@@ -13,7 +13,7 @@ addpath("Signals\");
         File.DataType = 'int16';
         File.dF = 0;
         % Запись: 'Rus1_small' | 'Rus2_small' | 'Fin_small'
-            File.Name = 'Rus1_small';
+            File.Name = 'Rus2_small';
         % Частота дискретизации
             File.Fs0 = 64/7*10^6;
         % Коэффициенты передискретизации
@@ -27,6 +27,9 @@ addpath("Signals\");
     NumOfNeededSamples = (8192+2048)*10;
     [Signal, ~] = ReadSignalFromFile( ...
         File, NumOfShiftedSamples, NumOfNeededSamples);
+
+% Инверсия спектра
+    Signal = conj(Signal);
 
 % Цифровая фильтрация сигнала
     load("LPF_Rus1.mat", "LPF_Rus1");
@@ -63,6 +66,14 @@ addpath("Signals\");
 % - bar3 для рисования трёхмерной картинки столбцами.
 
 %% Точная символьная и частотная синхронизация
+% Индексы пилотных поднесущих
+    load("ContPilotsInds.mat", "ContPilotsInds");
+    [ ~, ContPilotsInds ] = GetPoses();
+
+% Генерация PRS
+    PRBS = GenPRBS(6817);
+    PRS  = 4/3 * 2 * ( 1/2 - PRBS );
+
 % Массив сдвигов по времени
     tOffsets = Symbol_Offset + ( -40:40 );
 % Массив кратных частотных отстроек
@@ -86,59 +97,24 @@ for tIdx = 1:length( tOffsets )
             exp( -1j*2*pi*fFrac * ( 0:SymLen-1 )/File.Fs0 );
 
     % Цикл по грубым частотным сдвигам
-    for fIdx = 1:length( tOffsets )
+    for fIdx = 1:length( fOffsets )
         % Взятие БПФ и грубая частотная подстройка
             FFTVals = fftshift(fft(UPFrecComp1));
-            FrecComp2 = circshift(FFTVals, fOffsets(fIdx));
+            FrecComp2 = circshift(FFTVals, -fOffsets(fIdx));
 
         % Выбор отсчётов, соответствующих поднесущим символа
-            
+            SCs = FrecComp2( (689:7505)-1 );
+
+        % Выбор пилотных поднесущих
+            Pilots = SCs( ContPilotsInds +1 );
+
+        % Умножение пилотных поднесущих на элементы PRS и сложение
+            Pilots = Pilots .* PRS( ContPilotsInds +1 );
+
+        % Вычисление метрики
+            CorrVals( fIdx, tIdx ) = abs( sum( Pilots ) );
     end
 end
 
-% % Номера поднесущих, на которых располагаются непрерывные пилоты
-%     load("ContPilotsInds.mat", "ContPilotsInds");
-% 
-% % Сдвиги до моментов, определяющих начало ОФДМ символа
-%     TOffsets = Symbol_Offset + ( -40:40 );
-%     TOffsets(TOffsets < 1) = [];
-% 
-% % Массив грубых частотных сдвигов в единицах 1/T
-%     CoarseFreqShifts = ( -3:3 );
-% 
-% % Память под значения корреляционной функции
-%     CorrVals = zeros(length(CoarseFreqShifts), length(TOffsets));
-% 
-% % Цикл по сдвигам до лучей
-% for tIdx = 1:length(TOffsets)
-%     RayOffset = TOffsets(tIdx);
-% 
-%     % Цикл по кратным сдвигам частоты
-%     for fIdx = 1:length(CoarseFreqShifts)
-%         CoarseFreqShift = CoarseFreqShifts(fIdx);
-% 
-%         % Сдвигаемся до луча и выбирает отсчёты ЦП и символа
-%             SymWithCP = FSignal( (1:CPLen+SymLen)-1 + RayOffset );
-% 
-%         % Определяем и компенсируем дробный частотный сдвиг
-%             % Оценка набега фазы
-%             Ksi = angle( ...
-%                 sum( SymWithCP( end-CPLen+1:end ) ) / ...
-%                     sum( SymWithCP( 1:CPLen ) ) ...
-%             );
-% 
-%             % Дробный частотный сдвиг
-%                 FracFreqShift = Ksi / ( 2*pi * SymLen/File.Fs0 );
-%             % Компенсация
-%                 NoFraqShift = SymWithCP .* ...
-%                     exp( -1j*2*pi*FracFreqShift * ( 0:length(SymWithCP)-1 ) / File.Fs0 );
-% 
-%         % Взятие ДПФ и имплементация кратного сдвига частоты
-%             SCs = fftshift( fft( NoFraqShift( CPLen+1:end ) ) );
-%             SCsShift = circshift(SCs, CoarseFreqShift);
-% 
-%         figure; semilogy(abs(SCsShift))
-%     end
-% end
-% 
-% % Обязательно доделать к следующей паре!
+% Построение двумерной КФ
+    bar3(CorrVals)
