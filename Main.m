@@ -13,7 +13,7 @@ addpath("Signals\");
         File.DataType = 'int16';
         File.dF = 0;
         % Запись: 'Rus1_small' | 'Rus2_small' | 'Fin_small'
-            File.Name = 'Rus2_small';
+            File.Name = 'Rus1_small';
         % Частота дискретизации
             File.Fs0 = 64/7*10^6;
         % Коэффициенты передискретизации
@@ -24,7 +24,7 @@ addpath("Signals\");
 
 % Загрузка сигнала из файла
     NumOfShiftedSamples = 0;
-    NumOfNeededSamples = (8192+2048)*10;
+    NumOfNeededSamples = (8192+2048)*300;
     [Signal, ~] = ReadSignalFromFile( ...
         File, NumOfShiftedSamples, NumOfNeededSamples);
 
@@ -100,10 +100,10 @@ for tIdx = 1:length( tOffsets )
     for fIdx = 1:length( fOffsets )
         % Взятие БПФ и грубая частотная подстройка
             FFTVals = fftshift(fft(UPFrecComp1));
-            FrecComp2 = circshift(FFTVals, -fOffsets(fIdx));
+            FrecComp2 = circshift(FFTVals, fOffsets(fIdx));
 
         % Выбор отсчётов, соответствующих поднесущим символа
-            SCs = FrecComp2( (689:7505)-1 );
+            SCs = FrecComp2( (689:7505) );
 
         % Выбор пилотных поднесущих
             Pilots = SCs( ContPilotsInds +1 );
@@ -115,6 +115,9 @@ for tIdx = 1:length( tOffsets )
             CorrVals( fIdx, tIdx ) = abs( sum( Pilots ) );
     end
 end
+
+% Построение дифференциального сигнального созвездия для TPS поднесущей для
+% 300 ОФДМ символов
 
 % Построение двумерной КФ
     bar3(CorrVals)
