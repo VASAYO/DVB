@@ -5,7 +5,7 @@ close all;
 addpath("Lib\");
 addpath("Signals\");
 
-% Параметры обработки
+% Параметры
     % Структура с параметрами сигнала
         File.HeadLenInBytes = 0;
         File.NumOfChannels = 1;
@@ -22,22 +22,44 @@ addpath("Signals\");
     % Длина ОФДМ символа в отсчётах
         SymLen = 8192;
 
+    % Структура с параметрами ОФДМ-символа, содержащая следующие поля:
+    % 
+    %   Fs         - частота дискретизации;
+    %   Nfft       - длина полезной части в отсчётах;
+    %   Tu         - длительность полезной части в секундах;
+    %   SCsSpacing - разнос между поднесущими в Гц;
+    %   CPLen      - длина циклического префикса в отсчётах;
+    %   Nscs       - число активных поднесущих символа;
+    %   N0         - число нулевых поднесущих;
+    %   SCsInds    - индексы отсчётов преобразования Фурье от полезной
+    %                части символа, на которых расположены активные
+    %                поднесущие.
+        OFDM.Fs    = File.Fs0;
+        OFDM.Nfft  = 8192;
+        OFDM.Nscs  = 6817;
+        OFDM.CPLen = [];
+
+        OFDM.Tu         = OFDM.Nfft / OFDM.Fs;
+        OFDM.SCsSpacing = 1 / OFDM.Tu;
+        OFDM.N0         = OFDM.Nfft - OFDM.Nscs;
+        OFDM.SCsInds    = ( 0 : OFDM.Nscs-1 ) + ( OFDM.N0 + 1 ) / 2 + 1;
+
 % Загрузка сигнала из файла
     NumOfShiftedSamples = 0;
     NumOfNeededSamples = (8192+2048)*300;
     [Signal, ~] = ReadSignalFromFile( ...
         File, NumOfShiftedSamples, NumOfNeededSamples);
 
-% Инверсия спектра
+% Инверсия спектра сигнала для корректной дальнейшей обработки
     Signal = conj(Signal);
 
 % Цифровая фильтрация сигнала
-    load("LPF_Rus1.mat", "LPF_Rus1");
-    FSignal = conv(Signal, LPF_Rus1);
+    load("LPF_FIR_Coeffs.mat", "LPF_FIR_Coeffs");
+    FSignal = conv(Signal, LPF_FIR_Coeffs);
 
 %% Символьная синхронизация по циклическому префиксу
 % Определение длины ЦП и построение КФ
-    [CPLen, CorrFun] = Cycle_Prefix_Length_Determination(FSignal);
+    [OFDM.CPLen, CorrFun] = Cycle_Prefix_Length_Determination(FSignal);
 
 % Оценка сдвига до начала ЦП
     [~, Symbol_Offset] = max(CorrFun);
@@ -66,6 +88,9 @@ addpath("Signals\");
 % - bar3 для рисования трёхмерной картинки столбцами.
 
 %% Точная символьная и частотная синхронизация
+
+[tOffset, fOffset] = OFDM_Syncronization(FSignal, OFDM, Symbol_Offset, 1);
+
 % Индексы пилотных поднесущих
     load("ContPilotsInds.mat", "ContPilotsInds");
     [ ~, ContPilotsInds ] = GetPoses();
