@@ -19,8 +19,6 @@ addpath("Signals\");
         % Коэффициенты передискретизации
             File.FsDown = 1;
             File.FsUp = 1;
-    % Длина ОФДМ символа в отсчётах
-        SymLen = 8192;
 
     % Структура с параметрами ОФДМ-символа, содержащая следующие поля:
     % 
@@ -44,9 +42,16 @@ addpath("Signals\");
         OFDM.N0         = OFDM.Nfft - OFDM.Nscs;
         OFDM.SCsInds    = ( 0 : OFDM.Nscs-1 ) + ( OFDM.N0 + 1 ) / 2 + 1;
 
+    % Число обрабатываемых ОФДМ-символов
+        NumProcSymbs = 300;
+
+% Вычисляемые параметры
+    % Индексы непрерывных пилотов
+        [ TPSInds, ContPilotsInds ] = GetPoses();
+
 % Загрузка сигнала из файла
     NumOfShiftedSamples = 0;
-    NumOfNeededSamples = (8192+2048)*300;
+    NumOfNeededSamples = (8192+2048)*NumProcSymbs;
     [Signal, ~] = ReadSignalFromFile( ...
         File, NumOfShiftedSamples, NumOfNeededSamples);
 
@@ -87,67 +92,85 @@ addpath("Signals\");
 %
 % - bar3 для рисования трёхмерной картинки столбцами.
 
-%% Точная символьная и частотная синхронизация
+%% Обработка 300 последовательных ОФДМ-символов
+% Грубые оценки сдвигов до начала каждого символа
+    Coarse_Offsets = Symbol_Offset + ...
+        ( 0:NumProcSymbs-1 ) * ( OFDM.CPLen+OFDM.Nfft );
 
-[tOffset, fOffset] = OFDM_Syncronization(FSignal, OFDM, Symbol_Offset, 1);
+% Точная временная и частотная синхронизация для каждого символа
+    Presize_Offsets = zeros( 1, NumProcSymbs);
+    Freq_Offsets = zeros( 1, NumProcSymbs);
+    % Цикл по символам
+        for symIdx = 1:NumProcSymbs
+            [ Presize_Offsets(symIdx), Freq_Offsets(symIdx) ] = ...
+                OFDM_Syncronization(FSignal, OFDM, ...
+                    Coarse_Offsets( symIdx ), ContPilotsInds, 0 ...
+                );
+        end
 
-% Индексы пилотных поднесущих
-    load("ContPilotsInds.mat", "ContPilotsInds");
-    [ ~, ContPilotsInds ] = GetPoses();
+% Полезные части всех символов
+    UsefulParts = zeros( OFDM.Nfft, NumProcSymbs );
 
-% Генерация PRS
-    PRBS = GenPRBS(6817);
-    PRS  = 4/3 * 2 * ( 1/2 - PRBS );
-
-% Массив сдвигов по времени
-    tOffsets = Symbol_Offset + ( -40:40 );
-% Массив кратных частотных отстроек
-% в единицах расстояния между поднесущими
-    fOffsets = ( -3:3 );
-
-% Инициализация матрицы со значениями двумерной КФ
-    CorrVals = zeros( length( fOffsets ), length( tOffsets ) );
-
-% Цикл по временным сдвигам
-for tIdx = 1:length( tOffsets )
-    % Выбор отсчётов ЦП и полезной части символа
-        Buf = FSignal( (1:CPLen+SymLen)-1 + tOffsets(tIdx) );
-        Prefix = Buf( 1:CPLen );
-        UsefulPart = Buf( CPLen+1:end );
-
-    % Определение и компенсация дробной частотной отстройки
-        dphi = angle( sum( UsefulPart( end-CPLen+1:end ) ) / sum(Prefix) );
-        fFrac = dphi / ( 2*pi * SymLen/File.Fs0 );
-        UPFrecComp1 = UsefulPart .* ...
-            exp( -1j*2*pi*fFrac * ( 0:SymLen-1 )/File.Fs0 );
-
-    % Цикл по грубым частотным сдвигам
-    for fIdx = 1:length( fOffsets )
-        % Взятие БПФ и грубая частотная подстройка
-            FFTVals = fftshift(fft(UPFrecComp1));
-            FrecComp2 = circshift(FFTVals, fOffsets(fIdx));
-
-        % Выбор отсчётов, соответствующих поднесущим символа
-            SCs = FrecComp2( (689:7505) );
-
-        % Выбор пилотных поднесущих
-            Pilots = SCs( ContPilotsInds +1 );
-
-        % Умножение пилотных поднесущих на элементы PRS и сложение
-            Pilots = Pilots .* PRS( ContPilotsInds +1 );
-
-        % Вычисление метрики
-            CorrVals( fIdx, tIdx ) = abs( sum( Pilots ) );
+    for symIdx = 1:NumProcSymbs
+        UsefulParts( :, symIdx ) = ...
+            FSignal( ( 0:OFDM.Nfft-1 ) + Presize_Offsets( symIdx ) + ...
+                OFDM.CPLen ...
+            );
     end
-end
 
-% Построение дифференциального сигнального созвездия для TPS поднесущей для
-% 300 ОФДМ символов
+% Компенсация частотных отстроек
+    expVals = exp( ...
+        -1j * 2 * pi * ...
+        repmat( Freq_Offsets, size(UsefulParts, 1), 1 ) .* ...
+        repmat( ( 0:size(UsefulParts, 1)-1 )' / OFDM.Fs, 1, NumProcSymbs ) ...
+    );
+    
+    UsefulParts = UsefulParts .* expVals;
 
-% Построение двумерной КФ
-    bar3(CorrVals)
+% Преобразование Фурье
+    FFTVals = fftshift( fft( UsefulParts, [], 1 ) );
 
+% Выбор отсчётов, на которых находятся активные поднесущие
+    SCs = FFTVals( OFDM.SCsInds, : );
 
-% Что необходимо сделать к экзамену:
-% Дойти до шага построения сигнального созвездия после эквалайзинга, чтение
-% TPS поднесущих
+% Оценка канала
+    % Извлечение пилотов
+        RxContPilots = SCs( ContPilotsInds +1, :);
+    % Генерация опорных пилотов
+        PRS = GenPRBS( OFDM.Nscs )';
+        RefContPilots = 4/3 * 2 * ( 1/2 - PRS( ContPilotsInds +1 ) );
+    % Коэффициенты передачи канала
+        ChEst = RxContPilots ./ repmat( RefContPilots, 1, NumProcSymbs );
+    % Интерполяция на все поднесущие 
+        ChEstInterp = interp1( ContPilotsInds+1, ChEst, 1:OFDM.Nscs );
+
+% ZF-эквалайзер
+    SCsEq = SCs ./ ChEstInterp;
+
+% TPS поднесущие
+    SCsTPS = SCsEq( TPSInds +1, : );
+
+% Демаппинг TPS сигнала
+    TPSBits = pskdemod( SCsTPS(10, :), 2, 0, "gray", "OutputType", "bit" );
+
+%% Прорисовка результатов
+% Сигнальные созвездия до и после эквалайзинга
+    figure(1);
+    subplot( 1, 2, 1 );
+    plot( SCs( :, 1 ), '.' ); axis equal; grid on;
+    title('До эквалайзинга');
+    xlabel('I');
+    ylabel('Q');
+
+    subplot( 1, 2, 2 );
+    plot( SCsEq( :, 1 ), '.' ); axis equal; grid on;
+    title( {'После эквалайзинга при', 'использовании непрерывных пилотов'} );
+    xlabel('I');
+    ylabel('Q');
+
+% Созвездие TPS сигнала
+    figure(2)
+    plot( SCsTPS( 10, : ), '.' ); axis equal; grid on;
+    title('Созвездие TPS-сигнала');
+    xlabel('I');
+    ylabel('Q');
