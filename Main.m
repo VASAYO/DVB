@@ -166,7 +166,7 @@ addpath("Signals\");
 
     subplot( 1, 2, 2 );
     plot( SCsEq( :, 1 ), '.' ); axis equal; grid on;
-    title( 'После эквалайзинга при' );
+    title( 'После эквалайзинга' );
     xlabel('I');
     ylabel('Q');
 
