@@ -13,7 +13,7 @@ addpath("Signals\");
         File.DataType = 'int16';
         File.dF = 0;
         % Запись: 'Rus1_small' | 'Rus2_small' | 'Fin_small'
-            File.Name = 'Rus1_small';
+            File.Name = 'Fin_small';
         % Частота дискретизации
             File.Fs0 = 64/7*10^6;
         % Коэффициенты передискретизации
@@ -43,7 +43,7 @@ addpath("Signals\");
         OFDM.SCsInds    = ( 0 : OFDM.Nscs-1 ) + ( OFDM.N0 + 1 ) / 2 + 1;
 
     % Число обрабатываемых ОФДМ-символов
-        NumProcSymbs = 300;
+        NumProcSymbs = 500;
 
 % Вычисляемые параметры
     % Индексы непрерывных пилотов
@@ -147,15 +147,17 @@ addpath("Signals\");
 % ZF-эквалайзер
     SCsEq = SCs ./ ChEstInterp;
 
-% TPS поднесущие
-    SCsTPS = SCsEq( TPSInds +1, : );
-
-% Демаппинг TPS сигнала
-    TPSBits = pskdemod( SCsTPS(10, :), 2, 0, "gray", "OutputType", "bit" );
+% Обработка TPS сигнала
+    % Извлечение поднесущих
+        SCsTPS = SCsEq( TPSInds +1, : );
+    % Построение дифференциального созвездия
+        SCsTPSDiff = SCsTPS( :, 2:end ) .* SCsTPS( :, 1:end-1 );
+    % Демодуляция
+        TPSBits = pskdemod( SCsTPSDiff, 2, 0 );
 
 %% Прорисовка результатов
 % Сигнальные созвездия до и после эквалайзинга
-    figure(1);
+    figure("Name", "Принятые сигнальные созвездия");
     subplot( 1, 2, 1 );
     plot( SCs( :, 1 ), '.' ); axis equal; grid on;
     title('До эквалайзинга');
@@ -164,13 +166,30 @@ addpath("Signals\");
 
     subplot( 1, 2, 2 );
     plot( SCsEq( :, 1 ), '.' ); axis equal; grid on;
-    title( {'После эквалайзинга при', 'использовании непрерывных пилотов'} );
+    title( 'После эквалайзинга при' );
     xlabel('I');
     ylabel('Q');
 
 % Созвездие TPS сигнала
-    figure(2)
+    figure("Name", "Созвездия TPS сигнала")
+    subplot( 1, 2, 1 );
     plot( SCsTPS( 10, : ), '.' ); axis equal; grid on;
-    title('Созвездие TPS-сигнала');
+    title('Недифференциальное');
     xlabel('I');
     ylabel('Q');
+
+    subplot( 1, 2, 2 );
+    plot( SCsTPSDiff( 10, : ), '.' ); axis equal; grid on;
+    title('Дифференциальное');
+    xlabel('I');
+    ylabel('Q');
+
+% Корреляция бит TPS с синхрословом
+    figure(Name="Корреляция TPS с синхрословом");
+    plot( ...
+        conv( 1 - 2*TPSBits(1, :), ...
+            fliplr( 1 - 2*[0 0 1 1 0 1 0 1 1 1 1 0 1 1 1 0] ), "valid" ...
+        ) ...
+    ); grid on;
+    xlabel('Сдвиг до начала синхрослова')
+    ylabel('Корреляция')
