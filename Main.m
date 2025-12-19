@@ -13,7 +13,7 @@ addpath("Signals\");
         File.DataType = 'int16';
         File.dF = 0;
         % Запись: 'Rus1_small' | 'Rus2_small' | 'Fin_small'
-            File.Name = 'Rus1_small';
+            File.Name = 'Fin_small';
         % Частота дискретизации
             File.Fs0 = 64/7*10^6;
         % Коэффициенты передискретизации
@@ -96,7 +96,7 @@ addpath("Signals\");
 % Определение расположения распределённых пилотов первого OFDM-символа
     % Определение начала и отстройки символа
         [ dt1, df1 ] = OFDM_Syncronization( FSignal, OFDM, ...
-            Symbol_Offset, ContPilotsInds, 0 );
+            Symbol_Offset, ContPilotsInds, false );
 
     % Извлечение поднесущих
         UP1 = FSignal( ( 0:OFDM.Nfft-1 ) + dt1 + OFDM.CPLen );
@@ -121,18 +121,25 @@ addpath("Signals\");
         [ ~, l] = max( abs(ScatPilotsCorrVal ) );
         l = l - 1;
 
-% Грубые оценки сдвигов до начала каждого символа
-    Coarse_Offsets = Symbol_Offset + ...
-        ( 0:NumProcSymbs-1 ) * ( OFDM.CPLen+OFDM.Nfft );
 
 % Точная временная и частотная синхронизация для каждого символа
+    Coarse_Offsets = zeros( 1, NumProcSymbs );
     Presize_Offsets = zeros( 1, NumProcSymbs );
     Freq_Offsets = zeros( 1, NumProcSymbs );
+
+    Coarse_Offsets ( 1 ) = Symbol_Offset;
+    Presize_Offsets( 1 ) = dt1;
+    Freq_Offsets   ( 1 ) = df1;
+    clear df1 dt1 UP1df UP1 SCs1 FFTVals1;
     % Цикл по символам
-        for symIdx = 1:NumProcSymbs
-            [ Presize_Offsets(symIdx), Freq_Offsets(symIdx) ] = ...
-                OFDM_Syncronization(FSignal, OFDM, ...
-                    Coarse_Offsets( symIdx ), ContPilotsInds, 0 ...
+        for symIdx = 2:NumProcSymbs
+            Coarse_Offsets(symIdx) = Presize_Offsets( symIdx - 1 ) + ...
+                OFDM.CPLen + OFDM.Nfft;
+
+            [ Presize_Offsets( symIdx ), Freq_Offsets( symIdx ) ] = ...
+                OFDM_Syncronization( FSignal, OFDM, ...
+                    Coarse_Offsets( symIdx ), ...
+                    GetAllPilotPoses( l + symIdx-1 ), false ...
                 );
         end
 
@@ -150,7 +157,9 @@ addpath("Signals\");
     expVals = exp( ...
         -1j * 2 * pi * ...
         repmat( Freq_Offsets, size(UsefulParts, 1), 1 ) .* ...
-        repmat( ( 0:size(UsefulParts, 1)-1 )' / OFDM.Fs, 1, NumProcSymbs ) ...
+        repmat( ...
+            ( 0:size(UsefulParts, 1)-1 )' / OFDM.Fs, 1, NumProcSymbs ...
+        ) ...
     );
     
     UsefulParts = UsefulParts .* expVals;
@@ -163,12 +172,12 @@ addpath("Signals\");
 
 % Оценка канала
     % Извлечение пилотов
-        RxContPilots = SCs( ContPilotsInds +1, :);
+        RxPilots = SCs( ContPilotsInds +1, :);
     % Генерация опорных пилотов
         PRS = GenPRBS( OFDM.Nscs )';
         RefContPilots = 4/3 * 2 * ( 1/2 - PRS( ContPilotsInds +1 ) );
     % Коэффициенты передачи канала
-        ChEst = RxContPilots ./ repmat( RefContPilots, 1, NumProcSymbs );
+        ChEst = RxPilots ./ repmat( RefContPilots, 1, NumProcSymbs );
     % Интерполяция на все поднесущие 
         ChEstInterp = interp1( ContPilotsInds+1, ChEst, 1:OFDM.Nscs );
 
@@ -182,6 +191,7 @@ addpath("Signals\");
         SCsTPSDiff = SCsTPS( :, 2:end ) .* SCsTPS( :, 1:end-1 );
     % Демодуляция
         TPSBits = pskdemod( SCsTPSDiff, 2, 0 );
+        TPSBits = round( mean( TPSBits, 1 ) );
 
 %% Прорисовка результатов
 % Сигнальные созвездия до и после эквалайзинга
@@ -215,7 +225,7 @@ addpath("Signals\");
 % Корреляция бит TPS с синхрословом
     figure(Name="Корреляция TPS с синхрословом");
     plot( ...
-        conv( 1 - 2*TPSBits(1, :), ...
+        conv( 1 - 2*TPSBits, ...
             fliplr( 1 - 2*[0 0 1 1 0 1 0 1 1 1 1 0 1 1 1 0] ), "valid" ...
         ) ...
     ); grid on;
