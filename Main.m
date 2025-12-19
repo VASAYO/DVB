@@ -48,6 +48,8 @@ addpath("Signals\");
 % Вычисляемые параметры
     % Индексы непрерывных пилотов
         [ TPSInds, ContPilotsInds ] = GetPoses();
+    % ПСП для модуляции пилотных поднесущих
+        PRBS = GenPRBS( OFDM.Nscs )';
 
 % Загрузка сигнала из файла
     NumOfShiftedSamples = 0;
@@ -111,7 +113,6 @@ addpath("Signals\");
             [ ~, ScatPilotPoses ] = GetAllPilotPoses( scIdx -1 );
             ScatPilots = SCs1( ScatPilotPoses +1 );
 
-            PRBS = GenPRBS( OFDM.Nscs )';
             RefScatPilots = 4/3 * 2 * ( 1/2 - PRBS( ScatPilotPoses +1 ) );
 
             ScatPilotsCorrVal( scIdx ) = ScatPilots * conj( RefScatPilots );
@@ -174,8 +175,7 @@ addpath("Signals\");
     % Извлечение пилотов
         RxPilots = SCs( ContPilotsInds +1, :);
     % Генерация опорных пилотов
-        PRS = GenPRBS( OFDM.Nscs )';
-        RefContPilots = 4/3 * 2 * ( 1/2 - PRS( ContPilotsInds +1 ) );
+        RefContPilots = 4/3 * 2 * ( 1/2 - PRBS( ContPilotsInds +1 ) );
     % Коэффициенты передачи канала
         ChEst = RxPilots ./ repmat( RefContPilots, 1, NumProcSymbs );
     % Интерполяция на все поднесущие 
