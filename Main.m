@@ -45,6 +45,9 @@ addpath("Signals\");
     % Число обрабатываемых ОФДМ-символов
         NumProcSymbs = 499;
 
+    % Общее число пилотов в одном символе
+        TotNumPilots = 701;
+
 % Вычисляемые параметры
     % Позиции непрерывных пилотов и TPS-сигналов
         [ TPSInds, ContPilotsInds ] = GetPoses();
