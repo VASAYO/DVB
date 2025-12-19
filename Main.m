@@ -46,7 +46,7 @@ addpath("Signals\");
         NumProcSymbs = 499;
 
 % Вычисляемые параметры
-    % Индексы непрерывных пилотов
+    % Позиции непрерывных пилотов и TPS-сигналов
         [ TPSInds, ContPilotsInds ] = GetPoses();
     % ПСП для модуляции пилотных поднесущих
         PRBS = GenPRBS( OFDM.Nscs )';
