@@ -13,7 +13,7 @@ addpath("Signals\");
         File.DataType = 'int16';
         File.dF = 0;
         % Запись: 'Rus1_small' | 'Rus2_small' | 'Fin_small'
-            File.Name = 'Fin_small';
+            File.Name = 'Rus1_small';
         % Частота дискретизации
             File.Fs0 = 64/7*10^6;
         % Коэффициенты передискретизации
@@ -56,7 +56,7 @@ addpath("Signals\");
         File, NumOfShiftedSamples, NumOfNeededSamples);
 
 % Инверсия спектра сигнала для корректной дальнейшей обработки
-    Signal = conj(Signal);
+    Signal = conj( Signal );
 
 % Цифровая фильтрация сигнала
     load("LPF_FIR_Coeffs.mat", "LPF_FIR_Coeffs");
@@ -93,13 +93,41 @@ addpath("Signals\");
 % - bar3 для рисования трёхмерной картинки столбцами.
 
 %% Обработка 300 последовательных ОФДМ-символов
+% Определение расположения распределённых пилотов первого OFDM-символа
+    % Определение начала и отстройки символа
+        [ dt1, df1 ] = OFDM_Syncronization( FSignal, OFDM, ...
+            Symbol_Offset, ContPilotsInds, 0 );
+
+    % Извлечение поднесущих
+        UP1 = FSignal( ( 0:OFDM.Nfft-1 ) + dt1 + OFDM.CPLen );
+        UP1df = UP1 .* ...
+            exp( -1j*2*pi*df1 * (0:OFDM.Nfft-1) / OFDM.Fs );
+        FFTVals1 = fftshift( fft( UP1df ) );
+        SCs1 = FFTVals1( OFDM.SCsInds );
+
+    % Построение КФ 
+        ScatPilotsCorrVal = zeros( 1, 4 );
+        for scIdx = 1:4
+            [ ~, ScatPilotPoses ] = GetAllPilotPoses( scIdx -1 );
+            ScatPilots = SCs1( ScatPilotPoses +1 );
+
+            PRBS = GenPRBS( OFDM.Nscs )';
+            RefScatPilots = 4/3 * 2 * ( 1/2 - PRBS( ScatPilotPoses +1 ) );
+
+            ScatPilotsCorrVal( scIdx ) = ScatPilots * conj( RefScatPilots );
+        end
+
+    % Определение значения mod( n, 4 ), где n - номер первого ОФДМ-символа
+        [ ~, l] = max( abs(ScatPilotsCorrVal ) );
+        l = l - 1;
+
 % Грубые оценки сдвигов до начала каждого символа
     Coarse_Offsets = Symbol_Offset + ...
         ( 0:NumProcSymbs-1 ) * ( OFDM.CPLen+OFDM.Nfft );
 
 % Точная временная и частотная синхронизация для каждого символа
-    Presize_Offsets = zeros( 1, NumProcSymbs);
-    Freq_Offsets = zeros( 1, NumProcSymbs);
+    Presize_Offsets = zeros( 1, NumProcSymbs );
+    Freq_Offsets = zeros( 1, NumProcSymbs );
     % Цикл по символам
         for symIdx = 1:NumProcSymbs
             [ Presize_Offsets(symIdx), Freq_Offsets(symIdx) ] = ...
