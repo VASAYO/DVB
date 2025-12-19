@@ -181,12 +181,12 @@ addpath("Signals\");
     % Генерация опорных пилотов
         RefContPilots = 4/3 * 2 * ( 1/2 - PRBS( ContPilotsInds +1 ) );
     % Коэффициенты передачи канала
-        ChEst = RxPilots ./ repmat( RefContPilots, 1, NumProcSymbs );
+        ChEstOnPilots = RxPilots ./ repmat( RefContPilots, 1, NumProcSymbs );
     % Интерполяция на все поднесущие 
-        ChEstInterp = interp1( ContPilotsInds+1, ChEst, 1:OFDM.Nscs );
+        ChEst = interp1( ContPilotsInds+1, ChEstOnPilots, 1:OFDM.Nscs );
 
 % ZF-эквалайзер
-    SCsEq = SCs ./ ChEstInterp;
+    SCsEq = SCs ./ ChEst;
 
 % Обработка TPS сигнала
     % Извлечение поднесущих
