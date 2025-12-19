@@ -43,7 +43,7 @@ addpath("Signals\");
         OFDM.SCsInds    = ( 0 : OFDM.Nscs-1 ) + ( OFDM.N0 + 1 ) / 2 + 1;
 
     % Число обрабатываемых ОФДМ-символов
-        NumProcSymbs = 499;
+        NumProcSymbs = 512;
 
     % Общее число пилотов в одном символе
         TotNumPilots = 701;
@@ -176,14 +176,36 @@ addpath("Signals\");
     SCs = FFTVals( OFDM.SCsInds, : );
 
 % Оценка канала
-    % Извлечение пилотов
-        RxPilots = SCs( ContPilotsInds +1, :);
-    % Генерация опорных пилотов
-        RefContPilots = 4/3 * 2 * ( 1/2 - PRBS( ContPilotsInds +1 ) );
-    % Коэффициенты передачи канала
-        ChEstOnPilots = RxPilots ./ repmat( RefContPilots, 1, NumProcSymbs );
-    % Интерполяция на все поднесущие 
-        ChEst = interp1( ContPilotsInds+1, ChEstOnPilots, 1:OFDM.Nscs );
+    RxPilots    = zeros( TotNumPilots, NumProcSymbs );
+    RxRefPilots = zeros( TotNumPilots, NumProcSymbs );
+
+    % Принятые и опорные пилоты
+        for symIdx = 1 : NumProcSymbs
+            RxPilots   ( :, symIdx ) = SCs( ...
+                GetAllPilotPoses( l + symIdx -1 ) +1, symIdx );
+    
+            RxRefPilots( :, symIdx) = 4/3 * 2 * ( 1/2 - ...
+                PRBS( GetAllPilotPoses( l + symIdx -1 ) +1 ) );
+        end
+
+    % Оценка канала и интерполяция
+        ChEstOnPilots = RxPilots ./ RxRefPilots;
+    
+        ChEst = zeros( OFDM.Nscs, NumProcSymbs );
+        for symIdx = 1 : NumProcSymbs
+            ChEst( :, symIdx ) = interp1( ...
+                GetAllPilotPoses( l + symIdx -1 ) +1, ...
+                ChEstOnPilots( :, symIdx), 1:OFDM.Nscs);
+        end
+
+    % % Извлечение пилотов
+    %     RxPilots = SCs( ContPilotsInds +1, :);
+    % % Генерация опорных пилотов
+    %     RefContPilots = 4/3 * 2 * ( 1/2 - PRBS( ContPilotsInds +1 ) );
+    % % Коэффициенты передачи канала
+    %     ChEstOnPilots = RxPilots ./ repmat( RefContPilots, 1, NumProcSymbs );
+    % % Интерполяция на все поднесущие 
+    %     ChEst = interp1( ContPilotsInds+1, ChEstOnPilots, 1:OFDM.Nscs );
 
 % ZF-эквалайзер
     SCsEq = SCs ./ ChEst;
