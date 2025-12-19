@@ -43,7 +43,7 @@ addpath("Signals\");
         OFDM.SCsInds    = ( 0 : OFDM.Nscs-1 ) + ( OFDM.N0 + 1 ) / 2 + 1;
 
     % Число обрабатываемых ОФДМ-символов
-        NumProcSymbs = 500;
+        NumProcSymbs = 499;
 
 % Вычисляемые параметры
     % Индексы непрерывных пилотов
@@ -109,18 +109,19 @@ addpath("Signals\");
 
     % Построение КФ 
         ScatPilotsCorrVal = zeros( 1, 4 );
-        for scIdx = 1:4
-            [ ~, ScatPilotPoses ] = GetAllPilotPoses( scIdx -1 );
+        lVals = 0 : 3;
+        for i = 1 : length( lVals )
+            [ ~, ScatPilotPoses ] = GetAllPilotPoses( lVals( i ) );
             ScatPilots = SCs1( ScatPilotPoses +1 );
 
             RefScatPilots = 4/3 * 2 * ( 1/2 - PRBS( ScatPilotPoses +1 ) );
 
-            ScatPilotsCorrVal( scIdx ) = ScatPilots * conj( RefScatPilots );
+            ScatPilotsCorrVal( i ) = ScatPilots * conj( RefScatPilots );
         end
 
     % Определение значения mod( n, 4 ), где n - номер первого ОФДМ-символа
-        [ ~, l] = max( abs(ScatPilotsCorrVal ) );
-        l = l - 1;
+        [ ~, Ind] = max( abs(ScatPilotsCorrVal ) );
+        l = lVals( Ind );
 
 
 % Точная временная и частотная синхронизация для каждого символа
