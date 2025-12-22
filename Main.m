@@ -43,7 +43,7 @@ addpath("Signals\");
         OFDM.SCsInds    = ( 0 : OFDM.Nscs-1 ) + ( OFDM.N0 + 1 ) / 2 + 1;
 
     % Число обрабатываемых ОФДМ-символов
-        NumProcSymbs = 512;
+        NumProcSymbs = 300;
 
     % Общее число пилотов в одном символе
         TotNumPilots = 701;
@@ -103,29 +103,8 @@ addpath("Signals\");
         [ dt1, df1 ] = OFDM_Syncronization( FSignal, OFDM, ...
             Symbol_Offset, ContPilotsInds, false );
 
-    % Извлечение поднесущих
-        UP1 = FSignal( ( 0:OFDM.Nfft-1 ) + dt1 + OFDM.CPLen );
-        UP1df = UP1 .* ...
-            exp( -1j*2*pi*df1 * (0:OFDM.Nfft-1) / OFDM.Fs );
-        FFTVals1 = fftshift( fft( UP1df ) );
-        SCs1 = FFTVals1( OFDM.SCsInds );
-
-    % Построение КФ 
-        ScatPilotsCorrVal = zeros( 1, 4 );
-        lVals = 0 : 3;
-        for i = 1 : length( lVals )
-            [ ~, ScatPilotPoses ] = GetAllPilotPoses( lVals( i ) );
-            ScatPilots = SCs1( ScatPilotPoses +1 );
-
-            RefScatPilots = 4/3 * 2 * ( 1/2 - PRBS( ScatPilotPoses +1 ) );
-
-            ScatPilotsCorrVal( i ) = ScatPilots * conj( RefScatPilots );
-        end
-
     % Определение значения mod( n, 4 ), где n - номер первого ОФДМ-символа
-        [ ~, Ind] = max( abs(ScatPilotsCorrVal ) );
-        l = lVals( Ind );
-
+        l = DetermineL( FSignal, dt1, df1, OFDM, false );
 
 % Точная временная и частотная синхронизация для каждого символа
     Coarse_Offsets = zeros( 1, NumProcSymbs );
@@ -170,7 +149,7 @@ addpath("Signals\");
     UsefulParts = UsefulParts .* expVals;
 
 % Преобразование Фурье
-    FFTVals = fftshift( fft( UsefulParts, [], 1 ) );
+    FFTVals =  fftshift( fft( UsefulParts, [], 1 ), 1 );
 
 % Выбор отсчётов, на которых находятся активные поднесущие
     SCs = FFTVals( OFDM.SCsInds, : );
@@ -198,15 +177,6 @@ addpath("Signals\");
                 ChEstOnPilots( :, symIdx), 1:OFDM.Nscs);
         end
 
-    % % Извлечение пилотов
-    %     RxPilots = SCs( ContPilotsInds +1, :);
-    % % Генерация опорных пилотов
-    %     RefContPilots = 4/3 * 2 * ( 1/2 - PRBS( ContPilotsInds +1 ) );
-    % % Коэффициенты передачи канала
-    %     ChEstOnPilots = RxPilots ./ repmat( RefContPilots, 1, NumProcSymbs );
-    % % Интерполяция на все поднесущие 
-    %     ChEst = interp1( ContPilotsInds+1, ChEstOnPilots, 1:OFDM.Nscs );
-
 % ZF-эквалайзер
     SCsEq = SCs ./ ChEst;
 
@@ -223,13 +193,13 @@ addpath("Signals\");
 % Сигнальные созвездия до и после эквалайзинга
     figure("Name", "Принятые сигнальные созвездия");
     subplot( 1, 2, 1 );
-    plot( SCs( :, 1 ), '.' ); axis equal; grid on;
+    plot( SCs( :, NumProcSymbs ), '.' ); axis equal; grid on;
     title('До эквалайзинга');
     xlabel('I');
     ylabel('Q');
 
     subplot( 1, 2, 2 );
-    plot( SCsEq( :, 1 ), '.' ); axis equal; grid on;
+    plot( SCsEq( :, NumProcSymbs ), '.' ); axis equal; grid on;
     title( 'После эквалайзинга' );
     xlabel('I');
     ylabel('Q');
